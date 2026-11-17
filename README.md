@@ -73,5 +73,27 @@ npm run dev
 - 列表接口统一返回 `{ items, total, page, size }`，动作接口统一返回 `{ ok, message }`。
 - 状态流转只允许在 `app/services` 里改，路由层不做业务判断。
 
+## 节点状态链路（下线复核）
+
+集群节点、节点心跳、节点生命周期记录与节点可用性结果共用
+`backend/app/services/node_state.py` 一份求值：
+
+- 节点记录的 `status` 是唯一状态，列表展示的 `节点状态` 由它镜像；节点详情、
+  `GET /api/cluster/availability`、`GET /api/shard/candidates`、
+  `GET /api/shard/recheck` 读的是同一条可用性结果和同一个 `下线依据`。
+- 心跳（`POST /api/cluster/{id}/heartbeats`）和生命周期回执
+  （`POST /api/cluster/{id}/receipts`）只追加；重复 `receipt_id` 幂等，
+  不追加记录、不新建节点、不升版本。
+- 先恢复、随后离线构成冲突，按终态策略处理
+  （`GET/POST /api/cluster/policy`）：
+  - `recovery_first` 恢复终态优先：详情显示运行中，分片候选暂保留节点，
+    复核清单附“离线待清理”。
+  - `offline_first` 离线终态优先（默认）：详情显示已离线，分片候选立即移除，
+    复核清单附“恢复待办”。
+- 节点状态与可用性结果在同一个 `store.transaction()` 里落库，任一步失败整体
+  回滚，不会留下仍可分配的半写节点。
+
+回归测试：`cd backend && PYTHONPATH=.venv python3 -m unittest discover -s tests -v`。
+
 领域：数据工程
 子方向：数据采集、爬虫与RPA

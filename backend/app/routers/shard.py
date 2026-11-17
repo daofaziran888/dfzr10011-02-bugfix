@@ -1,4 +1,8 @@
-"""任务分片调度接口：维护分片任务，覆盖分配节点、重试分片、标记完成等动作。"""
+"""任务分片调度接口：维护分片任务，覆盖分配节点、重试分片、标记完成等动作。
+
+修复节点下线后，分片模块在这里读节点可用性结果：候选范围、复核页与节点详情
+使用的是同一份结果数据，不在分片侧另算一套下线依据。
+"""
 from __future__ import annotations
 
 from typing import Any
@@ -30,6 +34,26 @@ def list_entries(
     return PageResult(items=items, total=total, page=page, size=size)
 
 
+@router.get("/candidates")
+def candidates() -> dict[str, Any]:
+    """分片候选范围：只包含可用性结果为在线的节点。"""
+    items = service.candidates()
+    return {"items": items, "total": len(items)}
+
+
+@router.get("/recheck")
+def recheck() -> dict[str, Any]:
+    """修复节点下线后状态复核页：可用性结果、候选/排除范围与复核清单。"""
+    return service.recheck_page()
+
+
+@router.get("/export")
+def export_entries() -> dict[str, Any]:
+    """导出任务分片调度清单：返回当前过滤条件下的全量数据。"""
+    items, total = service.list_entries(page=1, size=10000)
+    return {"module": "shard", "total": total, "items": items}
+
+
 @router.get("/{entry_id}", response_model=dict)
 def get_entry(entry_id: int) -> dict:
     """读取单条分片任务明细；不存在时给出可读的错误说明。"""
@@ -56,10 +80,3 @@ def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
     if entry is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)
-
-
-@router.get("/export")
-def export_entries() -> dict[str, Any]:
-    """导出任务分片调度清单：返回当前过滤条件下的全量数据。"""
-    items, total = service.list_entries(page=1, size=10000)
-    return {"module": "shard", "total": total, "items": items}
